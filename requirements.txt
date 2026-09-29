@@ -1,8 +1,9 @@
-optimum[onnxruntime]
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
 transformers
 fastapi
 uvicorn
 soundfile
 librosa
-numpy
+numpy<2.0.0
 python-multipart
