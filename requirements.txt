@@ -1,8 +1,8 @@
+--index-url https://download.pytorch.org/whl/cpu
+torch
+transformers==4.35.2
 fastapi
 uvicorn
---find-links https://download.pytorch.org/whl/cpu/torch_stable.html
-torch==2.0.1+cpu
-transformers==4.35.2
 soundfile
 librosa
 numpy<2.0.0
