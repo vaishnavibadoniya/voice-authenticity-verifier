@@ -1,27 +1,37 @@
+import os
 import requests
 
 
 class AudioDetector:
     def __init__(self, model_name: str = "Hemgg/Deepfake-audio-detection"):
         """
-        Public Hugging Face Serverless API Client.
-        Runs models via remote API calls without consuming local RAM or requiring tokens.
+        Public Hugging Face Serverless Inference API Client using the new Router endpoint.
+        Runs models remotely with zero RAM overload on Render.
         """
         self.model_name = model_name
-        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
+        
+        # Updated Hugging Face Router URL
+        self.api_url = f"https://router.huggingface.co/hf-inference/v1/models/{self.model_name}"
+        
+        # Pull optional HF_TOKEN from Render Environment if present
+        self.hf_token = os.getenv("HF_TOKEN", "")
+        
         self.headers = {"Content-Type": "audio/wav"}
-        print(f"[ML Engine] Serverless API client initialized for: {self.model_name}")
+        if self.hf_token:
+            self.headers["Authorization"] = f"Bearer {self.hf_token}"
+            
+        print(f"[ML Engine] Serverless API client initialized via Router for: {self.model_name}")
 
     def preprocess_and_predict(self, file_bytes: bytes, filename: str = "audio.wav") -> dict:
         """
-        Sends raw audio bytes directly to HF Serverless Inference and parses response.
+        Sends audio payload to Hugging Face Inference Router and parses prediction scores.
         """
         try:
             response = requests.post(
                 self.api_url, 
                 headers=self.headers, 
                 data=file_bytes, 
-                timeout=20
+                timeout=25
             )
         except requests.exceptions.RequestException as err:
             raise Exception(f"Network error contacting Hugging Face API: {str(err)}")
@@ -31,7 +41,7 @@ class AudioDetector:
 
         data = response.json()
 
-        # Parse output array from Hugging Face model response
+        # Parse output array from Hugging Face response
         if isinstance(data, list):
             scores_map = {item['label'].lower(): item['score'] for item in data if 'label' in item and 'score' in item}
         elif isinstance(data, dict) and "error" in data:
