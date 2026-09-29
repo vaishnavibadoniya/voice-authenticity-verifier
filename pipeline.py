@@ -5,26 +5,30 @@ import requests
 class AudioDetector:
     def __init__(self, model_name: str = "Hemgg/Deepfake-audio-detection"):
         """
-        Public Hugging Face Serverless Inference API Client using the new Router endpoint.
-        Runs models remotely with zero RAM overload on Render.
+        Lightweight wrapper for Hugging Face Serverless Inference API.
+        Runs remote model inference with near-zero local memory usage (< 30 MB RAM).
         """
         self.model_name = model_name
         
-        # Updated Hugging Face Router URL
-        self.api_url = f"https://router.huggingface.co/hf-inference/v1/models/{self.model_name}"
+        # Public Hugging Face Inference API URL
+        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
         
-        # Pull optional HF_TOKEN from Render Environment if present
-        self.hf_token = os.getenv("HF_TOKEN", "")
+        # Read HF_TOKEN from environment variables
+        self.hf_token = os.getenv("HF_TOKEN", "").strip()
         
-        self.headers = {"Content-Type": "audio/wav"}
+        # Build headers
+        self.headers = {
+            "Content-Type": "audio/wav"
+        }
         if self.hf_token:
             self.headers["Authorization"] = f"Bearer {self.hf_token}"
-            
-        print(f"[ML Engine] Serverless API client initialized via Router for: {self.model_name}")
+            print(f"[ML Engine] Serverless API initialized for '{self.model_name}' (Authenticated).")
+        else:
+            print(f"[ML Engine] Serverless API initialized for '{self.model_name}' (Unauthenticated).")
 
     def preprocess_and_predict(self, file_bytes: bytes, filename: str = "audio.wav") -> dict:
         """
-        Sends audio payload to Hugging Face Inference Router and parses prediction scores.
+        Sends raw audio bytes to Hugging Face API and parses probability scores.
         """
         try:
             response = requests.post(
@@ -34,18 +38,25 @@ class AudioDetector:
                 timeout=25
             )
         except requests.exceptions.RequestException as err:
-            raise Exception(f"Network error contacting Hugging Face API: {str(err)}")
+            raise Exception(f"Network error connecting to Hugging Face API: {str(err)}")
+
+        if response.status_code == 401:
+            raise Exception(
+                "HTTP 401 Unauthorized: Invalid or missing Hugging Face Access Token. "
+                "Please verify that 'HF_TOKEN' is correctly set under your Render Environment variables."
+            )
 
         if response.status_code != 200:
             raise Exception(f"Inference API returned HTTP {response.status_code}: {response.text}")
 
         data = response.json()
 
-        # Parse output array from Hugging Face response
+        # Parse standard list output from Hugging Face model response
+        # Expected shape: [{'label': 'REAL', 'score': 0.95}, {'label': 'FAKE', 'score': 0.05}]
         if isinstance(data, list):
             scores_map = {item['label'].lower(): item['score'] for item in data if 'label' in item and 'score' in item}
         elif isinstance(data, dict) and "error" in data:
-            raise Exception(f"HF API Model Error: {data['error']}")
+            raise Exception(f"Hugging Face API Error: {data['error']}")
         else:
             scores_map = {}
 
