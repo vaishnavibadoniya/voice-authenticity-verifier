@@ -1,66 +1,51 @@
 import os
-import requests
+from huggingface_hub import InferenceClient
 
 
 class AudioDetector:
     def __init__(self, model_name: str = "Hemgg/Deepfake-audio-detection"):
         """
-        Lightweight wrapper for Hugging Face Serverless Inference API.
-        Runs remote model inference with near-zero local memory usage (< 30 MB RAM).
+        Lightweight wrapper for Hugging Face Inference using official SDK.
+        Maintains low memory footprint (< 30 MB RAM) to fit Render's free tier.
         """
         self.model_name = model_name
-        
-        # Public Hugging Face Inference API URL
-        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
-        
-        # Read HF_TOKEN from environment variables
-        self.hf_token = os.getenv("HF_TOKEN", "").strip()
-        
-        # Build headers
-        self.headers = {
-            "Content-Type": "audio/wav"
-        }
-        if self.hf_token:
-            self.headers["Authorization"] = f"Bearer {self.hf_token}"
-            print(f"[ML Engine] Serverless API initialized for '{self.model_name}' (Authenticated).")
-        else:
-            print(f"[ML Engine] Serverless API initialized for '{self.model_name}' (Unauthenticated).")
+        self.token = os.getenv("HF_TOKEN", "").strip() or None
+
+        # Initialize official Hugging Face Inference Client
+        self.client = InferenceClient(
+            model=self.model_name,
+            token=self.token,
+            timeout=30
+        )
+        print(f"[ML Engine] Hugging Face Inference Client initialized for '{self.model_name}'.")
 
     def preprocess_and_predict(self, file_bytes: bytes, filename: str = "audio.wav") -> dict:
         """
-        Sends raw audio bytes to Hugging Face API and parses probability scores.
+        Sends audio payload directly through Hugging Face InferenceClient.
         """
         try:
-            response = requests.post(
-                self.api_url, 
-                headers=self.headers, 
-                data=file_bytes, 
-                timeout=25
-            )
-        except requests.exceptions.RequestException as err:
-            raise Exception(f"Network error connecting to Hugging Face API: {str(err)}")
+            # Send raw audio bytes to Hugging Face
+            response = self.client.audio_classification(file_bytes)
+        except Exception as err:
+            err_str = str(err)
+            if "401" in err_str or "Unauthorized" in err_str:
+                raise Exception(
+                    "HTTP 401 Unauthorized: Invalid or missing Hugging Face Access Token. "
+                    "Ensure 'HF_TOKEN' is configured in Render Environment Variables."
+                )
+            raise Exception(f"Hugging Face API Error: {err_str}")
 
-        if response.status_code == 401:
-            raise Exception(
-                "HTTP 401 Unauthorized: Invalid or missing Hugging Face Access Token. "
-                "Please verify that 'HF_TOKEN' is correctly set under your Render Environment variables."
-            )
+        # Parse output from Hugging Face response
+        # Result format: [{'label': 'REAL', 'score': 0.95}, {'label': 'FAKE', 'score': 0.05}]
+        scores_map = {}
+        if isinstance(response, list):
+            for item in response:
+                # Handle dict or object attributes
+                label = getattr(item, 'label', None) or item.get('label', '')
+                score = getattr(item, 'score', None) or item.get('score', 0.0)
+                if label:
+                    scores_map[str(label).lower()] = float(score)
 
-        if response.status_code != 200:
-            raise Exception(f"Inference API returned HTTP {response.status_code}: {response.text}")
-
-        data = response.json()
-
-        # Parse standard list output from Hugging Face model response
-        # Expected shape: [{'label': 'REAL', 'score': 0.95}, {'label': 'FAKE', 'score': 0.05}]
-        if isinstance(data, list):
-            scores_map = {item['label'].lower(): item['score'] for item in data if 'label' in item and 'score' in item}
-        elif isinstance(data, dict) and "error" in data:
-            raise Exception(f"Hugging Face API Error: {data['error']}")
-        else:
-            scores_map = {}
-
-        # Extract classification probability scores
         fake_score = scores_map.get("fake", scores_map.get("spoof", 0.0))
         real_score = scores_map.get("real", scores_map.get("bonafide", 1.0 - fake_score if fake_score else 0.5))
 
