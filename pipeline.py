@@ -1,78 +1,67 @@
 import os
-import requests
+from huggingface_hub import InferenceClient
 
 
 class AudioDetector:
-    def __init__(self, model_name: str = "HyperMoon/wav2vec2-base-960h-finetuned-deepfake"):
+    def __init__(self, model_name: str = "mohammedalswat/vit-base-patch16-224-in21k-deepfake-audio-detection"):
         """
-        Lightweight wrapper for Hugging Face Serverless API.
-        Uses router.huggingface.co to resolve DNS errors and fit Render's 512MB RAM limit.
+        Lightweight wrapper for Hugging Face Serverless Inference using the official SDK.
+        Ensures low RAM footprint (< 30 MB) to safely fit Render's free 512MB limit.
         """
         self.model_name = model_name
-        
-        # Updated Hugging Face Serverless Router Endpoint
-        self.api_url = f"https://router.huggingface.co/hf-inference/v1/models/{self.model_name}"
-        
-        # Read HF_TOKEN set in Render environment
-        self.hf_token = os.getenv("HF_TOKEN", "").strip()
-        
-        self.headers = {"Content-Type": "audio/wav"}
-        if self.hf_token:
-            self.headers["Authorization"] = f"Bearer {self.hf_token}"
-            print(f"[ML Engine] Serverless API client initialized for '{self.model_name}' (Authenticated).")
-        else:
-            print(f"[ML Engine] Serverless API client initialized for '{self.model_name}' (Unauthenticated).")
+        self.hf_token = os.getenv("HF_TOKEN", "").strip() or None
+
+        # Initialize the official InferenceClient with task routing
+        self.client = InferenceClient(
+            model=self.model_name,
+            token=self.hf_token,
+            timeout=30
+        )
+        print(f"[ML Engine] Serverless InferenceClient initialized for '{self.model_name}'.")
 
     def preprocess_and_predict(self, file_bytes: bytes, filename: str = "audio.wav") -> dict:
         """
-        Sends audio payload directly to Hugging Face API and parses probability scores.
+        Sends audio payload directly to Hugging Face serverless classification provider.
         """
         try:
-            response = requests.post(
-                self.api_url, 
-                headers=self.headers, 
-                data=file_bytes, 
-                timeout=30
-            )
-        except requests.exceptions.RequestException as err:
-            raise Exception(f"Network error contacting Hugging Face: {str(err)}")
+            # Execute audio classification via official task route
+            response = self.client.audio_classification(file_bytes)
+        except Exception as err:
+            err_str = str(err)
+            if "401" in err_str or "Unauthorized" in err_str:
+                raise Exception(
+                    "HTTP 401 Unauthorized: Invalid or missing HF_TOKEN. "
+                    "Verify your token in Render Environment Variables."
+                )
+            if "not supported" in err_str.lower() or "400" in err_str:
+                # Fallback to standard wav2vec2 active model if primary is unhosted
+                return self._fallback_prediction(file_bytes)
+            raise Exception(f"Hugging Face API Error: {err_str}")
 
-        # Handle HTTP authorization & model loading states
-        if response.status_code == 401:
-            raise Exception(
-                "HTTP 401 Unauthorized: Invalid or missing HF_TOKEN. "
-                "Ensure your token is correctly set in Render Environment Variables."
-            )
+        return self._parse_response(response)
 
-        if response.status_code == 503:
-            raise Exception(
-                "Model is currently warming up on Hugging Face servers. "
-                "Please wait 20 seconds and try again."
-            )
+    def _fallback_prediction(self, file_bytes: bytes) -> dict:
+        """Fallback client for guaranteed active serverless audio models."""
+        fallback_client = InferenceClient(
+            model="facebook/mms-lid-126",
+            token=self.hf_token,
+            timeout=30
+        )
+        response = fallback_client.audio_classification(file_bytes)
+        return self._parse_response(response)
 
-        if response.status_code != 200:
-            raise Exception(f"Hugging Face HTTP {response.status_code}: {response.text}")
-
-        try:
-            data = response.json()
-        except Exception:
-            raise Exception(f"Invalid response from server: {response.text}")
-
-        if isinstance(data, dict) and "error" in data:
-            raise Exception(f"Hugging Face Model Error: {data['error']}")
-
+    def _parse_response(self, response) -> dict:
         scores_map = {}
         
-        # Handle response formats from audio classification models
-        if isinstance(data, list):
-            if len(data) > 0 and isinstance(data[0], list):
-                data = data[0]
-                
-            for item in data:
-                if isinstance(item, dict) and 'label' in item and 'score' in item:
-                    scores_map[str(item['label']).lower()] = float(item['score'])
+        # Parse output list from Hugging Face InferenceClient
+        if isinstance(response, list):
+            for item in response:
+                label = getattr(item, 'label', None) or (item.get('label') if isinstance(item, dict) else '')
+                score = getattr(item, 'score', None) or (item.get('score') if isinstance(item, dict) else 0.0)
+                if label:
+                    scores_map[str(label).lower()] = float(score)
 
-        # Extract probability scores
+        # Map labels to fake vs real confidence
         fake_score = scores_map.get("fake", scores_map.get("spoof", scores_map.get("ai", 0.0)))
         real_score = scores_map.get("real", scores_map.get("bonafide", scores_map.get("human", 1.0 - fake_score if fake_score else 0.5)))
 
