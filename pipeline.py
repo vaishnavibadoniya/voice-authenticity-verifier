@@ -3,17 +3,17 @@ import requests
 
 
 class AudioDetector:
-    def __init__(self, model_name: str = "garystafford/wav2vec2-deepfake-voice-detector"):
+    def __init__(self, model_name: str = "Hemgg/Deepfake-audio-detection"):
         """
-        Lightweight wrapper for Hugging Face Serverless Inference API.
-        Uses router.huggingface.co to resolve DNS errors and fit Render's 512MB RAM limit.
+        Lightweight wrapper for Hugging Face Serverless API.
+        Uses router.huggingface.co/models directly to resolve provider support errors.
         """
         self.model_name = model_name
         
-        # Updated Hugging Face Inference Router URL
-        self.api_url = f"https://router.huggingface.co/hf-inference/v1/models/{self.model_name}"
+        # Working Hugging Face Inference Router URL
+        self.api_url = f"https://router.huggingface.co/models/{self.model_name}"
         
-        # Read HF_TOKEN from Render Environment Variables
+        # Read HF_TOKEN from Render Environment
         self.hf_token = os.getenv("HF_TOKEN", "").strip()
         
         self.headers = {"Content-Type": "audio/wav"}
@@ -37,7 +37,6 @@ class AudioDetector:
         except requests.exceptions.RequestException as err:
             raise Exception(f"Network error contacting Hugging Face: {str(err)}")
 
-        # Handle HTTP authorization & model loading states
         if response.status_code == 401:
             raise Exception(
                 "HTTP 401 Unauthorized: Invalid or missing HF_TOKEN. "
