@@ -3,17 +3,17 @@ import requests
 
 
 class AudioDetector:
-    def __init__(self, model_name: str = "superb/wav2vec2-base-superb-ks"):
+    def __init__(self, model_name: str = "HyperMoon/wav2vec2-base-960h-finetuned-deepfake"):
         """
-        Lightweight wrapper for Hugging Face Serverless Inference API.
-        Uses verified active serverless audio classification endpoints.
+        Lightweight wrapper for Hugging Face Serverless API.
+        Uses router.huggingface.co to resolve DNS errors and fit Render's 512MB RAM limit.
         """
         self.model_name = model_name
         
-        # Public Hugging Face Serverless Inference URL
-        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
+        # Updated Hugging Face Serverless Router Endpoint
+        self.api_url = f"https://router.huggingface.co/hf-inference/v1/models/{self.model_name}"
         
-        # Read HF_TOKEN from Render Environment Variables
+        # Read HF_TOKEN set in Render environment
         self.hf_token = os.getenv("HF_TOKEN", "").strip()
         
         self.headers = {"Content-Type": "audio/wav"}
@@ -37,10 +37,11 @@ class AudioDetector:
         except requests.exceptions.RequestException as err:
             raise Exception(f"Network error contacting Hugging Face: {str(err)}")
 
+        # Handle HTTP authorization & model loading states
         if response.status_code == 401:
             raise Exception(
                 "HTTP 401 Unauthorized: Invalid or missing HF_TOKEN. "
-                "Check your Render Environment Variables."
+                "Ensure your token is correctly set in Render Environment Variables."
             )
 
         if response.status_code == 503:
@@ -62,7 +63,7 @@ class AudioDetector:
 
         scores_map = {}
         
-        # Parse output array from Hugging Face audio model
+        # Handle response formats from audio classification models
         if isinstance(data, list):
             if len(data) > 0 and isinstance(data[0], list):
                 data = data[0]
@@ -71,7 +72,7 @@ class AudioDetector:
                 if isinstance(item, dict) and 'label' in item and 'score' in item:
                     scores_map[str(item['label']).lower()] = float(item['score'])
 
-        # Calculate scores and predictions
+        # Extract probability scores
         fake_score = scores_map.get("fake", scores_map.get("spoof", scores_map.get("ai", 0.0)))
         real_score = scores_map.get("real", scores_map.get("bonafide", scores_map.get("human", 1.0 - fake_score if fake_score else 0.5)))
 
