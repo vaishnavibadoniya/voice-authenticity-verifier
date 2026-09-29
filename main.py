@@ -1,14 +1,13 @@
 import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pipeline import AudioDetector
 
-app = FastAPI(
-    title="Voice Authenticity Verifier API",
-    description="Detects whether an uploaded voice track is authentic human speech or AI-generated deepfake audio."
-)
+app = FastAPI(title="Voice Authenticity Verifier API")
 
-# Enable CORS for browser requests
+# Enable CORS for cross-origin frontend requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,7 +16,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize detector instance at startup
+# Mount static folder if it exists
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
 detector = None
 
 @app.on_event("startup")
@@ -25,15 +27,18 @@ def load_model():
     global detector
     detector = AudioDetector()
 
-@app.get("/")
-def health_check():
-    return {
-        "status": "online",
-        "message": "Voice Authenticity Verifier API is running."
-    }
+@app.get("/", response_class=HTMLResponse)
+def serve_ui():
+    static_index = os.path.join("static", "index.html")
+    if os.path.exists(static_index):
+        return FileResponse(static_index)
+    elif os.path.exists("index.html"):
+        return FileResponse("index.html")
+    return '{"status": "online", "message": "Voice Authenticity Verifier API is running."}'
 
+@app.post("/api/analyze")
 @app.post("/predict")
-async def predict_audio(file: UploadFile = File(...)):
+async def analyze_audio(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(('.wav', '.mp3', '.m4a', '.flac', '.ogg')):
         raise HTTPException(
             status_code=400, 
