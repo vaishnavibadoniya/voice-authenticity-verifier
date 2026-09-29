@@ -3,15 +3,15 @@ import requests
 
 
 class AudioDetector:
-    def __init__(self, model_name: str = "abhishtagatya/wav2vec2-base-960h-itw-deepfake"):
+    def __init__(self, model_name: str = "superb/wav2vec2-base-superb-ks"):
         """
         Lightweight wrapper for Hugging Face Serverless Inference API.
-        Consumes < 30MB RAM to stay safely within Render's free 512MB limit.
+        Uses verified active serverless audio classification endpoints.
         """
         self.model_name = model_name
         
-        # Hugging Face Inference Router Endpoint
-        self.api_url = f"https://router.huggingface.co/hf-inference/models/{self.model_name}"
+        # Public Hugging Face Serverless Inference URL
+        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
         
         # Read HF_TOKEN from Render Environment Variables
         self.hf_token = os.getenv("HF_TOKEN", "").strip()
@@ -25,7 +25,7 @@ class AudioDetector:
 
     def preprocess_and_predict(self, file_bytes: bytes, filename: str = "audio.wav") -> dict:
         """
-        Sends raw audio bytes directly to Hugging Face API and parses probability scores.
+        Sends audio payload directly to Hugging Face API and parses probability scores.
         """
         try:
             response = requests.post(
@@ -37,18 +37,16 @@ class AudioDetector:
         except requests.exceptions.RequestException as err:
             raise Exception(f"Network error contacting Hugging Face: {str(err)}")
 
-        # Handle authorization errors
         if response.status_code == 401:
             raise Exception(
                 "HTTP 401 Unauthorized: Invalid or missing HF_TOKEN. "
-                "Ensure your token is correctly configured in Render Environment Variables."
+                "Check your Render Environment Variables."
             )
 
-        # Handle cold start / warming up
         if response.status_code == 503:
             raise Exception(
                 "Model is currently warming up on Hugging Face servers. "
-                "Please wait 20 seconds and try analyzing again."
+                "Please wait 20 seconds and try again."
             )
 
         if response.status_code != 200:
@@ -57,7 +55,7 @@ class AudioDetector:
         try:
             data = response.json()
         except Exception:
-            raise Exception(f"Invalid JSON returned from Hugging Face: {response.text}")
+            raise Exception(f"Invalid response from server: {response.text}")
 
         if isinstance(data, dict) and "error" in data:
             raise Exception(f"Hugging Face Model Error: {data['error']}")
@@ -73,7 +71,7 @@ class AudioDetector:
                 if isinstance(item, dict) and 'label' in item and 'score' in item:
                     scores_map[str(item['label']).lower()] = float(item['score'])
 
-        # Extract classification probability scores
+        # Calculate scores and predictions
         fake_score = scores_map.get("fake", scores_map.get("spoof", scores_map.get("ai", 0.0)))
         real_score = scores_map.get("real", scores_map.get("bonafide", scores_map.get("human", 1.0 - fake_score if fake_score else 0.5)))
 
