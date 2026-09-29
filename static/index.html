@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Authenticity Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-6">
+
+    <div class="max-w-xl w-full bg-slate-800 rounded-xl shadow-2xl p-8 border border-slate-700">
+        <!-- Header -->
+        <h1 class="text-2xl font-bold text-center mb-1">Voice Authenticity Verifier</h1>
+        <p class="text-slate-400 text-sm text-center mb-6">
+            Record live speech or upload an audio file to classify Human vs. AI Voice.
+        </p>
+
+        <!-- Mode Toggle Tabs -->
+        <div class="flex mb-6 border-b border-slate-700">
+            <button id="tabUpload" class="flex-1 py-2 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500">
+                📁 Upload Audio File
+            </button>
+            <button id="tabRecord" class="flex-1 py-2 text-center font-semibold text-slate-400 hover:text-slate-200">
+                🎙️ Record Live Voice
+            </button>
+        </div>
+
+        <!-- Section 1: File Dropzone (Upload Mode) -->
+        <div id="uploadSection">
+            <div id="dropzone" class="border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-lg p-8 text-center cursor-pointer transition bg-slate-800/50">
+                <input type="file" id="fileInput" accept="audio/*" class="hidden">
+                <svg class="mx-auto h-12 w-12 text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                </svg>
+                <p class="text-sm font-medium text-slate-200 mb-1">Drag & Drop audio file here, or click to browse</p>
+                <p class="text-xs text-slate-400">Supports WAV, MP3, FLAC, OGG, M4A</p>
+            </div>
+        </div>
+
+        <!-- Section 2: Live Microphone Recorder (Record Mode) -->
+        <div id="recordSection" class="hidden text-center p-6 border border-slate-700 rounded-lg bg-slate-800/50">
+            <div class="flex justify-center items-center gap-4 mb-4">
+                <button id="recordBtn" class="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold px-6 py-3 rounded-full transition shadow-lg">
+                    <span id="recordDot" class="w-3 h-3 bg-white rounded-full"></span>
+                    <span id="recordBtnText">Start Recording</span>
+                </button>
+            </div>
+            <p id="recordTimer" class="text-xl font-mono text-slate-300 hidden">00:00</p>
+            <p id="recordStatus" class="text-xs text-slate-400 mt-2">Click button to allow microphone access and start recording.</p>
+        </div>
+
+        <!-- File Selected / Recorded Info -->
+        <div id="fileInfo" class="mt-3 text-xs text-indigo-400 font-mono text-center hidden"></div>
+
+        <!-- Audio Player Preview -->
+        <div id="audioPreviewContainer" class="mt-4 hidden">
+            <audio id="audioPlayer" controls class="w-full h-10 rounded-lg bg-slate-900 border border-slate-700"></audio>
+        </div>
+
+        <!-- Analyze Button -->
+        <button id="analyzeBtn" disabled class="w-full mt-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition shadow-lg">
+            Analyze Audio
+        </button>
+
+        <!-- Output Results -->
+        <div id="results" class="mt-8 hidden border-t border-slate-700 pt-6">
+            <div class="flex justify-between items-center mb-6">
+                <span class="text-slate-300 font-medium">Classification Verdict:</span>
+                <span id="verdictBadge" class="text-base font-bold px-4 py-1.5 rounded-full"></span>
+            </div>
+
+            <!-- Probability Bars -->
+            <div class="space-y-4 mb-6">
+                <div>
+                    <div class="flex justify-between text-xs font-semibold mb-1">
+                        <span class="text-emerald-400">Human Voice Confidence</span>
+                        <span id="humanScore" class="text-emerald-400">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-700 h-2.5 rounded-full overflow-hidden">
+                        <div id="humanBar" class="bg-emerald-500 h-full w-0 transition-all duration-700"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold mb-1">
+                        <span class="text-rose-400">AI Generated Confidence</span>
+                        <span id="aiScore" class="text-rose-400">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-700 h-2.5 rounded-full overflow-hidden">
+                        <div id="aiBar" class="bg-rose-500 h-full w-0 transition-all duration-700"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metadata Info -->
+            <div class="bg-slate-900/80 rounded-lg p-4 text-xs font-mono text-slate-400 flex justify-between border border-slate-700/50">
+                <div>Sample Rate: <span id="metaSr" class="text-slate-200">--</span></div>
+                <div>Duration Window: <span id="metaDuration" class="text-slate-200">--</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const tabUpload = document.getElementById('tabUpload');
+        const tabRecord = document.getElementById('tabRecord');
+        const uploadSection = document.getElementById('uploadSection');
+        const recordSection = document.getElementById('recordSection');
+        
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const recordBtn = document.getElementById('recordBtn');
+        const recordBtnText = document.getElementById('recordBtnText');
+        const recordDot = document.getElementById('recordDot');
+        const recordTimer = document.getElementById('recordTimer');
+        const recordStatus = document.getElementById('recordStatus');
+
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const fileInfo = document.getElementById('fileInfo');
+        const audioPreviewContainer = document.getElementById('audioPreviewContainer');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const results = document.getElementById('results');
+
+        let activeAudioBlob = null;
+        let isRecording = false;
+        let audioContext = null;
+        let mediaStream = null;
+        let scriptProcessor = null;
+        let audioBuffers = [];
+        let timerInterval = null;
+        let secondsRecorded = 0;
+
+        // Tab Switching Logic
+        tabUpload.addEventListener('click', () => {
+            uploadSection.classList.remove('hidden');
+            recordSection.classList.add('hidden');
+            tabUpload.className = "flex-1 py-2 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500";
+            tabRecord.className = "flex-1 py-2 text-center font-semibold text-slate-400 hover:text-slate-200";
+        });
+
+        tabRecord.addEventListener('click', () => {
+            recordSection.classList.remove('hidden');
+            uploadSection.classList.add('hidden');
+            tabRecord.className = "flex-1 py-2 text-center font-semibold text-indigo-400 border-b-2 border-indigo-500";
+            tabUpload.className = "flex-1 py-2 text-center font-semibold text-slate-400 hover:text-slate-200";
+        });
+
+        // File Upload Handlers
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                activeAudioBlob = file;
+                fileInfo.textContent = `Uploaded: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+                fileInfo.classList.remove('hidden');
+                
+                audioPlayer.src = URL.createObjectURL(file);
+                audioPreviewContainer.classList.remove('hidden');
+                analyzeBtn.disabled = false;
+                results.classList.add('hidden');
+            }
+        });
+
+        // Direct PCM WAV Recording Engine (Bypasses FFmpeg requirement)
+        recordBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                    const input = audioContext.createMediaStreamSource(mediaStream);
+                    
+                    scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+                    audioBuffers = [];
+
+                    scriptProcessor.onaudioprocess = (e) => {
+                        const channelData = e.inputBuffer.getChannelData(0);
+                        audioBuffers.push(new Float32Array(channelData));
+                    };
+
+                    input.connect(scriptProcessor);
+                    scriptProcessor.connect(audioContext.destination);
+
+                    isRecording = true;
+                    secondsRecorded = 0;
+                    recordTimer.textContent = "00:00";
+                    recordTimer.classList.remove('hidden');
+                    
+                    timerInterval = setInterval(() => {
+                        secondsRecorded++;
+                        const mins = String(Math.floor(secondsRecorded / 60)).padStart(2, '0');
+                        const secs = String(secondsRecorded % 60).padStart(2, '0');
+                        recordTimer.textContent = `${mins}:${secs}`;
+                    }, 1000);
+
+                    recordBtnText.textContent = "Stop Recording";
+                    recordDot.classList.add('animate-pulse', 'bg-red-400');
+                    recordStatus.textContent = "Recording live PCM WAV... Speak into microphone.";
+                } catch (err) {
+                    alert("Microphone permission denied or unsupported browser.");
+                }
+            } else {
+                // Stop Recording and Encode to Clean WAV
+                isRecording = false;
+                clearInterval(timerInterval);
+
+                scriptProcessor.disconnect();
+                mediaStream.getTracks().forEach(track => track.stop());
+
+                const wavBlob = encodeWAV(audioBuffers, 16000);
+                activeAudioBlob = new File([wavBlob], "live_recording.wav", { type: "audio/wav" });
+
+                audioPlayer.src = URL.createObjectURL(activeAudioBlob);
+                audioPreviewContainer.classList.remove('hidden');
+                fileInfo.textContent = `Recorded Live WAV (${secondsRecorded}s)`;
+                fileInfo.classList.remove('hidden');
+                analyzeBtn.disabled = false;
+
+                recordBtnText.textContent = "Record Again";
+                recordDot.classList.remove('animate-pulse', 'bg-red-400');
+                recordStatus.textContent = "Recording complete. Preview below and click Analyze.";
+            }
+        });
+
+        // WAV Encoder Function
+        function encodeWAV(samples, sampleRate) {
+            let totalLength = samples.reduce((acc, curr) => acc + curr.length, 0);
+            let merged = new Float32Array(totalLength);
+            let offset = 0;
+            for (let chunk of samples) {
+                merged.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            let buffer = new ArrayBuffer(44 + merged.length * 2);
+            let view = new DataView(buffer);
+
+            // Write WAV Header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + merged.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM format
+            view.setUint16(22, 1, true); // Mono
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true); // 16-bit
+            writeString(view, 36, 'data');
+            view.setUint32(40, merged.length * 2, true);
+
+            // Convert Float32 to 16-bit PCM
+            let index = 44;
+            for (let i = 0; i < merged.length; i++) {
+                let s = Math.max(-1, Math.min(1, merged[i]));
+                view.setInt16(index, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                index += 2;
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // Analyze Request
+        analyzeBtn.addEventListener('click', async () => {
+            if (!activeAudioBlob) return;
+
+            const formData = new FormData();
+            formData.append('file', activeAudioBlob, activeAudioBlob.name || "live_recording.wav");
+
+            analyzeBtn.textContent = 'Processing & Analyzing...';
+            analyzeBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success) {
+                    displayResult(data.result);
+                } else {
+                    alert('Error: ' + (data.detail || 'Analysis failed.'));
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            } finally {
+                analyzeBtn.textContent = 'Analyze Audio';
+                analyzeBtn.disabled = false;
+            }
+        });
+
+        function displayResult(res) {
+            results.classList.remove('hidden');
+            const badge = document.getElementById('verdictBadge');
+            badge.textContent = `${res.prediction} (${res.confidence}%)`;
+
+            if (res.prediction === "Human Voice") {
+                badge.className = "text-base font-bold px-4 py-1.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800";
+            } else {
+                badge.className = "text-base font-bold px-4 py-1.5 rounded-full bg-rose-950 text-rose-400 border border-rose-800";
+            }
+
+            document.getElementById('humanScore').textContent = `${res.scores.human}%`;
+            document.getElementById('humanBar').style.width = `${res.scores.human}%`;
+
+            document.getElementById('aiScore').textContent = `${res.scores.ai_generated}%`;
+            document.getElementById('aiBar').style.width = `${res.scores.ai_generated}%`;
+
+            document.getElementById('metaSr').textContent = `${res.audio_info.sample_rate} Hz`;
+            document.getElementById('metaDuration').textContent = `${res.audio_info.duration_sec}s`;
+        }
+    </script>
+</body>
+</html>
