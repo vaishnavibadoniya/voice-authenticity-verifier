@@ -1,4 +1,8 @@
 fastapi
 uvicorn
-requests
 python-multipart
+torch --extra-index-url https://download.pytorch.org/whl/cpu
+transformers
+librosa
+soundfile
+numpy
