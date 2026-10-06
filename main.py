@@ -1,53 +1,138 @@
+<<<<<<< HEAD
 import os
+import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pipeline import AudioDetector
 
-app = FastAPI(title="Voice Authenticity Verifier API")
+# Initialize FastAPI Application
+app = FastAPI(title="Voice Authenticity Analyzer")
 
-# Enable CORS for cross-origin frontend requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Mount static folder for CSS/JS assets and index.html frontend
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Mount static folder if it exists
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+# Instantiate ML Detector (loads model weights into RAM once at startup)
+detector = AudioDetector()
 
-detector = None
-
-@app.on_event("startup")
-def load_model():
-    global detector
-    detector = AudioDetector()
 
 @app.get("/", response_class=HTMLResponse)
-def serve_ui():
-    static_index = os.path.join("static", "index.html")
-    if os.path.exists(static_index):
-        return FileResponse(static_index)
-    elif os.path.exists("index.html"):
-        return FileResponse("index.html")
-    return '{"status": "online", "message": "Voice Authenticity Verifier API is running."}'
+async def serve_ui():
+    """
+    Serves the web application interface at http://0.0.0.0:7860
+    """
+    index_path = os.path.join("static", "index.html")
+    if not os.path.exists(index_path):
+        raise HTTPException(status_code=404, detail="File static/index.html not found.")
+    
+    with open(index_path, "r", encoding="utf-8") as f:
+        return f.read()
+
 
 @app.post("/api/analyze")
-@app.post("/predict")
 async def analyze_audio(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(('.wav', '.mp3', '.m4a', '.flac', '.ogg')):
+    """
+    Receives uploaded audio files or live recording blobs, runs preprocessing,
+    and executes neural network inference.
+    """
+    valid_extensions = ('.wav', '.m4a', '.mp3', '.flac', '.ogg', '.webm')
+    filename = file.filename or "audio.wav"
+
+    if not filename.lower().endswith(valid_extensions):
         raise HTTPException(
-            status_code=400, 
-            detail="Unsupported file format. Please upload WAV, MP3, M4A, FLAC, or OGG."
+            status_code=400,
+            detail=f"Unsupported format. Allowed formats: {', '.join(valid_extensions)}"
         )
 
     try:
+        # Read raw binary stream from request RAM
         file_bytes = await file.read()
-        result = detector.preprocess_and_predict(file_bytes, filename=file.filename)
-        return {"success": True, "result": result}
+        
+        # Execute model inference via pipeline.py
+        result = detector.preprocess_and_predict(file_bytes, filename=filename)
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "result": result
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Analysis failed: {str(e)}"
+        )
+
+
+if __name__ == "__main__":
+    # Standard launch configuration matching Docker port 7860
+    port = int(os.environ.get("PORT", 7860))
+=======
+import os
+import uvicorn
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from pipeline import AudioDetector
+
+# Initialize FastAPI Application
+app = FastAPI(title="Voice Authenticity Analyzer")
+
+# Mount static folder for CSS/JS assets and index.html frontend
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Instantiate ML Detector (loads model weights into RAM once at startup)
+detector = AudioDetector()
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_ui():
+    """
+    Serves the web application interface at http://0.0.0.0:7860
+    """
+    index_path = os.path.join("static", "index.html")
+    if not os.path.exists(index_path):
+        raise HTTPException(status_code=404, detail="File static/index.html not found.")
+    
+    with open(index_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@app.post("/api/analyze")
+async def analyze_audio(file: UploadFile = File(...)):
+    """
+    Receives uploaded audio files or live recording blobs, runs preprocessing,
+    and executes neural network inference.
+    """
+    valid_extensions = ('.wav', '.m4a', '.mp3', '.flac', '.ogg', '.webm')
+    filename = file.filename or "audio.wav"
+
+    if not filename.lower().endswith(valid_extensions):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format. Allowed formats: {', '.join(valid_extensions)}"
+        )
+
+    try:
+        # Read raw binary stream from request RAM
+        file_bytes = await file.read()
+        
+        # Execute model inference via pipeline.py
+        result = detector.preprocess_and_predict(file_bytes, filename=filename)
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "result": result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Analysis failed: {str(e)}"
+        )
+
+
+if __name__ == "__main__":
+    # Standard launch configuration matching Docker port 7860
+    port = int(os.environ.get("PORT", 7860))
+>>>>>>> 237f39d72e9d9fb589e02acccf908379494a8313
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
