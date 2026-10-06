@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import os
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -66,7 +65,7 @@ async def analyze_audio(file: UploadFile = File(...)):
 if __name__ == "__main__":
     # Standard launch configuration matching Docker port 7860
     port = int(os.environ.get("PORT", 7860))
-=======
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
 import os
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -134,5 +133,4 @@ async def analyze_audio(file: UploadFile = File(...)):
 if __name__ == "__main__":
     # Standard launch configuration matching Docker port 7860
     port = int(os.environ.get("PORT", 7860))
->>>>>>> 237f39d72e9d9fb589e02acccf908379494a8313
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
